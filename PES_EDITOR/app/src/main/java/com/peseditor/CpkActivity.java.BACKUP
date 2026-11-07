@@ -1,0 +1,1017 @@
+package com.peseditor;
+
+import java.security.MessageDigest;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.View;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.DocumentsContract;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.List;
+
+public class CpkActivity extends Activity {
+
+    private static final int PICK_CPK = 100;
+    private static final int PICK_FOLDER = 101;
+    private static final int PICK_REPACK_FOLDER = 102;
+    private static final int PICK_SAVE_CPK = 103;
+
+    private TextView txtStatus;
+    private File selectedCpk;
+    private File salvarArquivoPendente;
+    private Button btnListar;
+    private Button btnExtrair;
+    private Button btnRepack;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(24, 24, 24, 24);
+
+        TextView title = new TextView(this);
+        title.setText("📦 PES CPKs");
+        title.setTextSize(28);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 0, 0, 25);
+        layout.addView(title);
+
+        Button btnSelecionar = new Button(this);
+        btnSelecionar.setText("📂 SELECIONAR CPK");
+        layout.addView(btnSelecionar);
+
+        btnListar = new Button(this);
+        btnListar.setText("📋 LISTAR ARQUIVOS");
+        btnListar.setEnabled(false);
+        layout.addView(btnListar);
+
+        btnExtrair = new Button(this);
+        btnExtrair.setText("📤 EXTRAIR CPK");
+        btnExtrair.setEnabled(false);
+        layout.addView(btnExtrair);
+
+        btnRepack = new Button(this);
+        btnRepack.setText("📦 REEMPACOTAR CPK");
+        btnRepack.setEnabled(true);
+        layout.addView(btnRepack);
+
+        txtStatus = new TextView(this);
+        txtStatus.setText("Selecione um arquivo CPK.");
+        txtStatus.setTextSize(16);
+        txtStatus.setPadding(8, 20, 8, 8);
+        layout.addView(txtStatus);
+
+        btnSelecionar.setOnClickListener(v -> selecionarCpk());
+
+        btnListar.setOnClickListener(v -> listarCpk());
+
+        btnExtrair.setOnClickListener(v -> selecionarPasta());
+
+        btnRepack.setOnClickListener(v -> selecionarPastaRepack());
+
+        setContentView(layout);
+    }
+
+    private void selecionarCpk() {
+
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+
+        startActivityForResult(intent, PICK_CPK);
+    }
+
+    private void selecionarPasta() {
+
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(intent, PICK_FOLDER);
+    }
+
+    private void selecionarPastaRepack() {
+
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(intent, PICK_REPACK_FOLDER);
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+        if (resultCode != RESULT_OK || data == null) {
+            return;
+        }
+
+        Uri uri = data.getData();
+
+        if (requestCode == PICK_CPK) {
+
+            new Thread(() -> {
+
+                try {
+
+                    File destino =
+                            new File(
+                                    getCacheDir(),
+                                    "arquivo_selecionado.cpk"
+                            );
+
+                    copiarUriParaArquivo(
+                            uri,
+                            destino
+                    );
+
+                    selectedCpk = destino;
+
+                    String nome =
+                            obterNome(uri);
+
+                    runOnUiThread(() -> {
+                        txtStatus.setText(
+                                "✅ CPK selecionado:\n\n" +
+                                nome +
+                                "\n\nArquivo preparado."
+                        );
+
+                        btnListar.setEnabled(true);
+                        btnExtrair.setEnabled(true);
+                        btnRepack.setEnabled(true);
+                    });
+
+                } catch (Exception e) {
+
+                    runOnUiThread(() ->
+                            txtStatus.setText(
+                                    "❌ Erro ao selecionar CPK:\n\n" +
+                                    e.getMessage()
+                            )
+                    );
+                }
+
+            }).start();
+
+        } else if (requestCode == PICK_FOLDER) {
+
+            Uri documentUri =
+                    DocumentsContract.buildDocumentUriUsingTree(
+                            uri,
+                            DocumentsContract.getTreeDocumentId(uri)
+                    );
+
+            executarExtracao(documentUri);
+
+        } else if (requestCode == PICK_SAVE_CPK) {
+
+            if (salvarArquivoPendente == null ||
+                    !salvarArquivoPendente.exists()) {
+
+                txtStatus.setText(
+                        "❌ Arquivo CPK temporário não encontrado."
+                );
+                return;
+            }
+
+            final Uri destino = uri;
+            final File arquivo = salvarArquivoPendente;
+
+            txtStatus.setText(
+                    "⏳ Salvando CPK..."
+            );
+
+            new Thread(() -> {
+
+                try {
+
+                    copiarArquivoParaUri(
+                            arquivo,
+                            destino
+                    );
+
+                    long tamanho =
+                            arquivo.length();
+
+                    runOnUiThread(() ->
+                            txtStatus.setText(
+                                    "✅ CPK salvo com sucesso!\n\n" +
+                                    "Arquivo: " +
+                                    arquivo.getName() +
+                                    "\n\nTamanho: " +
+                                    tamanho +
+                                    " bytes"
+                            )
+                    );
+
+                } catch (Exception e) {
+
+                    runOnUiThread(() ->
+                            txtStatus.setText(
+                                    "❌ Erro ao salvar CPK:\n\n" +
+                                    e.getMessage()
+                            )
+                    );
+
+                } finally {
+
+                    salvarArquivoPendente = null;
+                }
+
+            }).start();
+
+        } else if (requestCode == PICK_REPACK_FOLDER) {
+
+            final Uri pastaSelecionada = uri;
+
+            txtStatus.setText(
+                    "✅ Pasta selecionada.\\n\\n⏳ Preparando reempacotamento..."
+            );
+
+            new Thread(() -> {
+                try {
+
+                    Thread.sleep(300);
+
+                    runOnUiThread(() ->
+                            executarRepack(pastaSelecionada)
+                    );
+
+                } catch (Exception e) {
+
+                    runOnUiThread(() ->
+                            txtStatus.setText(
+                                    "❌ Erro ao preparar reempacotamento:\\n\\n" +
+                                    e.getMessage()
+                            )
+                    );
+                }
+            }).start();
+        }
+    }
+
+    private void listarCpk() {
+
+        if (selectedCpk == null ||
+                !selectedCpk.exists()) {
+
+            txtStatus.setText(
+                    "❌ Nenhum CPK selecionado."
+            );
+
+            return;
+        }
+
+        txtStatus.setText(
+                "⏳ Lendo arquivos do CPK..."
+        );
+
+        new Thread(() -> {
+
+            try {
+
+                String resultado =
+                        executarTool(
+                                "-l",
+                                selectedCpk.getAbsolutePath()
+                        );
+
+                runOnUiThread(() ->
+                        txtStatus.setText(
+                                "📋 ARQUIVOS DO CPK\n\n" +
+                                resultado
+                        )
+                );
+
+            } catch (Exception e) {
+
+                runOnUiThread(() ->
+                        txtStatus.setText(
+                                "❌ Erro ao listar CPK:\n\n" +
+                                e.getMessage()
+                        )
+                );
+            }
+
+        }).start();
+    }
+
+    private void executarExtracao(Uri destinoUri) {
+
+        if (selectedCpk == null ||
+                !selectedCpk.exists()) {
+
+            txtStatus.setText(
+                    "❌ Nenhum CPK selecionado."
+            );
+
+            return;
+        }
+
+        txtStatus.setText(
+                "⏳ Extraindo CPK..."
+        );
+
+        new Thread(() -> {
+
+            File pastaTemp = null;
+
+            try {
+
+                pastaTemp =
+                        new File(
+                                getCacheDir(),
+                                "cpk_extract"
+                        );
+
+                apagarRecursivo(pastaTemp);
+
+                if (!pastaTemp.mkdirs() &&
+                        !pastaTemp.exists()) {
+
+                    throw new Exception(
+                            "Não foi possível criar a pasta temporária."
+                    );
+                }
+
+                String resultado =
+                        executarTool(
+                                "-e",
+                                selectedCpk.getAbsolutePath(),
+                                pastaTemp.getAbsolutePath()
+                        );
+
+                copiarPastaParaUri(
+                        pastaTemp,
+                        destinoUri
+                );
+
+                String finalResultado =
+                        "✅ CPK extraído com sucesso!\n\n" +
+                        "Destino selecionado pelo usuário.\n\n" +
+                        resultado;
+
+                runOnUiThread(() ->
+                        txtStatus.setText(
+                                finalResultado
+                        )
+                );
+
+            } catch (Exception e) {
+
+                runOnUiThread(() ->
+                        txtStatus.setText(
+                                "❌ Erro ao extrair CPK:\n\n" +
+                                e.getMessage()
+                        )
+                );
+
+            } finally {
+
+                if (pastaTemp != null) {
+                    apagarRecursivo(pastaTemp);
+                }
+            }
+
+        }).start();
+    }
+
+    private void executarRepack(Uri pastaUri) {
+
+        txtStatus.setText(
+                "⏳ Reempacotando CPK..."
+        );
+
+        new Thread(() -> {
+
+            File pastaTemp = null;
+            File cpkSaida = null;
+
+            try {
+
+                pastaTemp = new File(
+                        getCacheDir(),
+                        "cpk_repack"
+                );
+
+                apagarRecursivo(pastaTemp);
+
+                if (!pastaTemp.mkdirs() &&
+                        !pastaTemp.exists()) {
+
+                    throw new Exception(
+                            "Não foi possível criar a pasta temporária."
+                    );
+                }
+
+                copiarUriParaPasta(
+                        pastaUri,
+                        pastaTemp
+                );
+
+                String nomePasta =
+                        obterNomePasta(pastaUri);
+
+                if (nomePasta == null ||
+                        nomePasta.trim().isEmpty()) {
+
+                    nomePasta = "CPK_REPACK";
+                }
+
+                cpkSaida = new File(
+                        getCacheDir(),
+                        nomePasta + ".cpk"
+                );
+
+                if (cpkSaida.exists()) {
+                    cpkSaida.delete();
+                }
+
+                String resultado =
+                        executarTool(
+                                "-p",
+                                pastaTemp.getAbsolutePath(),
+                                cpkSaida.getAbsolutePath()
+                        );
+
+                if (!cpkSaida.exists() ||
+                        cpkSaida.length() == 0) {
+
+                    throw new Exception(
+                            "O CPK não foi criado.\n\n" +
+                            resultado
+                    );
+                }
+
+                final File arquivoFinal = cpkSaida;
+                final String nomeFinal = arquivoFinal.getName();
+
+                runOnUiThread(() -> {
+
+                    txtStatus.setText(
+                            "✅ CPK reempacotado!\n\n" +
+                            nomeFinal +
+                            "\n\nEscolha onde salvar o arquivo."
+                    );
+
+                    salvarCpkNoAndroid(
+                            arquivoFinal,
+                            nomeFinal
+                    );
+                });
+
+            } catch (Exception e) {
+
+                runOnUiThread(() ->
+                        txtStatus.setText(
+                                "❌ Erro ao reempacotar CPK:\n\n" +
+                                e.getMessage()
+                        )
+                );
+
+            } finally {
+
+                if (pastaTemp != null) {
+                    apagarRecursivo(pastaTemp);
+                }
+            }
+
+        }).start();
+    }
+
+    private void copiarUriParaPasta(
+            Uri origem,
+            File destino)
+            throws Exception {
+
+        if (!destino.exists() &&
+                !destino.mkdirs()) {
+
+            throw new Exception(
+                    "Não foi possível criar a pasta temporária."
+            );
+        }
+
+        Uri childrenUri =
+                DocumentsContract.buildChildDocumentsUriUsingTree(
+                        origem,
+                        DocumentsContract.getTreeDocumentId(origem)
+                );
+
+        Cursor cursor =
+                getContentResolver().query(
+                        childrenUri,
+                        new String[]{
+                                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document.COLUMN_MIME_TYPE
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor == null) {
+            throw new Exception(
+                    "Não foi possível ler a pasta selecionada."
+            );
+        }
+
+        try {
+
+            while (cursor.moveToNext()) {
+
+                String documentId =
+                        cursor.getString(0);
+
+                String nome =
+                        cursor.getString(1);
+
+                String mime =
+                        cursor.getString(2);
+
+                Uri childUri =
+                        DocumentsContract.buildDocumentUriUsingTree(
+                                origem,
+                                documentId
+                        );
+
+                File destinoItem =
+                        new File(
+                                destino,
+                                nome
+                        );
+
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+
+                    if (!destinoItem.exists() &&
+                            !destinoItem.mkdirs()) {
+
+                        throw new Exception(
+                                "Não foi possível criar:\n" +
+                                destinoItem.getAbsolutePath()
+                        );
+                    }
+
+                    copiarUriParaPasta(
+                            childUri,
+                            destinoItem
+                    );
+
+                } else {
+
+                    InputStream in =
+                            getContentResolver()
+                                    .openInputStream(childUri);
+
+                    if (in == null) {
+                        throw new Exception(
+                                "Não foi possível abrir:\n" +
+                                nome
+                        );
+                    }
+
+                    FileOutputStream out =
+                            new FileOutputStream(
+                                    destinoItem
+                            );
+
+                    byte[] buffer =
+                            new byte[8192];
+
+                    int n;
+
+                    while ((n = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, n);
+                    }
+
+                    out.flush();
+                    out.close();
+                    in.close();
+                }
+            }
+
+        } finally {
+            cursor.close();
+        }
+    }
+
+    private String obterSha256(File arquivo) throws Exception {
+
+        MessageDigest digest =
+                MessageDigest.getInstance("SHA-256");
+
+        InputStream in =
+                new FileInputStream(arquivo);
+
+        byte[] buffer =
+                new byte[8192];
+
+        int n;
+
+        while ((n = in.read(buffer)) != -1) {
+            digest.update(buffer, 0, n);
+        }
+
+        in.close();
+
+        byte[] hash =
+                digest.digest();
+
+        StringBuilder sb =
+                new StringBuilder();
+
+        for (byte b : hash) {
+            sb.append(
+                    String.format("%02x", b)
+            );
+        }
+
+        return sb.toString();
+    }
+
+    private String obterNomePasta(Uri uri) {
+
+        try {
+
+            String documentId =
+                    DocumentsContract.getTreeDocumentId(uri);
+
+            if (documentId != null) {
+
+                int pos =
+                        documentId.lastIndexOf(':');
+
+                if (pos >= 0 &&
+                        pos + 1 < documentId.length()) {
+
+                    String caminho =
+                            documentId.substring(pos + 1);
+
+                    int barra =
+                            caminho.lastIndexOf('/');
+
+                    if (barra >= 0 &&
+                            barra + 1 < caminho.length()) {
+
+                        caminho =
+                                caminho.substring(barra + 1);
+                    }
+
+                    if (!caminho.isEmpty()) {
+                        return caminho;
+                    }
+                }
+            }
+
+        } catch (Exception ignored) {
+        }
+
+        return "CPK_REPACK";
+    }
+
+    private void salvarCpkNoAndroid(
+            File arquivo,
+            String nomeArquivo) {
+
+        Intent intent =
+                new Intent(
+                        Intent.ACTION_CREATE_DOCUMENT
+                );
+
+        intent.addCategory(
+                Intent.CATEGORY_OPENABLE
+        );
+
+        intent.setType(
+                "application/octet-stream"
+        );
+
+        intent.putExtra(
+                Intent.EXTRA_TITLE,
+                nomeArquivo
+        );
+
+        salvarArquivoPendente = arquivo;
+
+        startActivityForResult(
+                intent,
+                PICK_SAVE_CPK
+        );
+    }
+
+    private String executarTool(
+            String... argumentos)
+            throws Exception {
+
+        String nativeDir =
+                getApplicationInfo().nativeLibraryDir;
+
+        File tool =
+                new File(
+                        nativeDir,
+                        "libcpk-tool.so"
+                );
+
+        File linker =
+                new File(
+                        "/system/bin/linker64"
+                );
+
+        if (!tool.exists()) {
+            throw new Exception(
+                    "cpk-tool não encontrado em:\n" +
+                    tool.getAbsolutePath()
+            );
+        }
+
+        if (!linker.exists()) {
+            throw new Exception(
+                    "linker64 não encontrado em:\n" +
+                    linker.getAbsolutePath()
+            );
+        }
+
+        List<String> comando =
+                new ArrayList<>();
+
+        comando.add(
+                linker.getAbsolutePath()
+        );
+
+        comando.add(
+                tool.getAbsolutePath()
+        );
+
+        for (String argumento : argumentos) {
+            comando.add(argumento);
+        }
+
+        ProcessBuilder pb =
+                new ProcessBuilder(comando);
+
+        pb.redirectErrorStream(true);
+
+        pb.environment().put(
+                "LD_LIBRARY_PATH",
+                nativeDir
+        );
+
+        Process process =
+                pb.start();
+
+        BufferedReader reader =
+                new BufferedReader(
+                        new InputStreamReader(
+                                process.getInputStream()
+                        )
+                );
+
+        StringBuilder output =
+                new StringBuilder();
+
+        String linha;
+
+        while ((linha =
+                reader.readLine()) != null) {
+
+            output.append(linha)
+                    .append("\n");
+        }
+
+        int codigo =
+                process.waitFor();
+
+        if (codigo != 0) {
+            throw new Exception(
+                    "CPK Tool retornou código " +
+                    codigo +
+                    "\n\n" +
+                    output
+            );
+        }
+
+        return output.toString();
+    }
+
+    private void copiarUriParaArquivo(
+            Uri uri,
+            File destino)
+            throws Exception {
+
+        InputStream in =
+                getContentResolver()
+                        .openInputStream(uri);
+
+        if (in == null) {
+            throw new Exception(
+                    "Não foi possível abrir o CPK."
+            );
+        }
+
+        FileOutputStream out =
+                new FileOutputStream(destino);
+
+        byte[] buffer =
+                new byte[8192];
+
+        int n;
+
+        while ((n =
+                in.read(buffer)) != -1) {
+
+            out.write(buffer, 0, n);
+        }
+
+        out.flush();
+        out.close();
+        in.close();
+    }
+
+    private String obterNome(Uri uri) {
+
+        Cursor cursor =
+                getContentResolver()
+                        .query(
+                                uri,
+                                null,
+                                null,
+                                null,
+                                null
+                        );
+
+        if (cursor != null) {
+
+            try {
+
+                int index =
+                        cursor.getColumnIndex(
+                                OpenableColumns.DISPLAY_NAME
+                        );
+
+                if (index >= 0 &&
+                        cursor.moveToFirst()) {
+
+                    return cursor.getString(index);
+                }
+
+            } finally {
+
+                cursor.close();
+            }
+        }
+
+        return "arquivo.cpk";
+    }
+
+    private void copiarPastaParaUri(
+            File origem,
+            Uri destino)
+            throws Exception {
+
+        File[] arquivos =
+                origem.listFiles();
+
+        if (arquivos == null) {
+            return;
+        }
+
+        for (File arquivo : arquivos) {
+
+            if (arquivo.isDirectory()) {
+
+                Uri novaPasta =
+                        DocumentsContract
+                                .createDocument(
+                                        getContentResolver(),
+                                        destino,
+                                        "vnd.android.document/directory",
+                                        arquivo.getName()
+                                );
+
+                if (novaPasta != null) {
+
+                    copiarPastaParaUri(
+                            arquivo,
+                            novaPasta
+                    );
+                }
+
+            } else {
+
+                Uri novoArquivo =
+                        DocumentsContract
+                                .createDocument(
+                                        getContentResolver(),
+                                        destino,
+                                        "application/octet-stream",
+                                        arquivo.getName()
+                                );
+
+                if (novoArquivo != null) {
+
+                    copiarArquivoParaUri(
+                            arquivo,
+                            novoArquivo
+                    );
+                }
+            }
+        }
+    }
+
+    private void copiarArquivoParaUri(
+            File arquivo,
+            Uri destino)
+            throws Exception {
+
+        InputStream in =
+                new FileInputStream(arquivo);
+
+        OutputStream out =
+                getContentResolver()
+                        .openOutputStream(destino);
+
+        if (out == null) {
+
+            in.close();
+
+            throw new Exception(
+                    "Não foi possível criar o arquivo."
+            );
+        }
+
+        byte[] buffer =
+                new byte[8192];
+
+        int n;
+
+        while ((n =
+                in.read(buffer)) != -1) {
+
+            out.write(buffer, 0, n);
+        }
+
+        out.flush();
+        out.close();
+        in.close();
+    }
+
+    private void apagarRecursivo(File arquivo) {
+
+        if (arquivo == null ||
+                !arquivo.exists()) {
+
+            return;
+        }
+
+        if (arquivo.isDirectory()) {
+
+            File[] filhos =
+                    arquivo.listFiles();
+
+            if (filhos != null) {
+
+                for (File filho : filhos) {
+                    apagarRecursivo(filho);
+                }
+            }
+        }
+
+        arquivo.delete();
+    }
+}

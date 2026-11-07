@@ -1,0 +1,64 @@
+package com.peseditor;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.content.Intent;
+import android.graphics.Color;
+import android.view.Gravity;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+public class NomesActivity extends BaseActivity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER_HORIZONTAL);
+        layout.setPadding(24, 24, 24, 24);
+
+        TextView titulo = new TextView(this);
+        titulo.setText("📝 PES NOMES");
+        titulo.setTextSize(30);
+        titulo.setTextColor(Color.WHITE);
+        titulo.setGravity(Gravity.CENTER);
+        titulo.setPadding(0, 0, 0, 30);
+
+        layout.addView(titulo);
+
+        Button btnNomes = new Button(this);
+        btnNomes.setText("📝 NOMES");
+        btnNomes.setTextSize(18);
+        layout.addView(btnNomes);
+
+        Button btnNomesNovo = new Button(this);
+        btnNomesNovo.setText("✏️ NOMES NOVOS");
+        btnNomesNovo.setTextSize(18);
+        layout.addView(btnNomesNovo);
+
+        Button btnRenomear = new Button(this);
+        btnRenomear.setText("🔤 RENOMEAR");
+        btnRenomear.setTextSize(18);
+        layout.addView(btnRenomear);
+
+        btnNomes.setOnClickListener(v -> {
+            Intent intent = new Intent(this, NomesProcessActivity.class);
+            startActivity(intent);
+        });
+
+        btnNomesNovo.setOnClickListener(v -> {
+            Intent intent = new Intent(this, NomesNovosActivity.class);
+            startActivity(intent);
+        });
+
+        btnRenomear.setOnClickListener(v -> {
+            Intent intent = new Intent(this, RenomearActivity.class);
+            startActivity(intent);
+        });
+
+        setContentView(layout);
+    }
+}

@@ -1,0 +1,1149 @@
+package com.peseditor;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.DocumentsContract;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Typeface;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
+public class NomesNovosActivity extends BaseActivity {
+
+    private static final int PICK_INPUT_FOLDER = 601;
+    private static final int PICK_TXT = 602;
+    private static final int PICK_OUTPUT_FOLDER = 603;
+
+    private static final int ESCALA_SAIDA = 4;
+
+    private Uri inputFolderUri;
+    private Uri txtUri;
+    private Uri outputFolderUri;
+
+    private EditText edtPorcentagem;
+    private EditText edtBorda;
+    private TextView txtStatus;
+
+    private final Handler handler =
+            new Handler(Looper.getMainLooper());
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(24, 24, 24, 24);
+
+        TextView titulo = new TextView(this);
+        titulo.setText("✏️ NOMES NOVOS");
+        titulo.setTextSize(28);
+        titulo.setTextColor(Color.WHITE);
+        titulo.setPadding(0, 0, 0, 25);
+        layout.addView(titulo);
+
+        TextView explicacao = new TextView(this);
+        explicacao.setText(
+                "Cria novos nomes nas texturas PES.\n\n" +
+                "1º nome do TXT → 1ª imagem\n" +
+                "2º nome do TXT → 2ª imagem\n" +
+                "As imagens são usadas em ordem alfabética."
+        );
+        explicacao.setTextSize(16);
+        layout.addView(explicacao);
+
+        Button btnPasta = new Button(this);
+        btnPasta.setText("📁 SELECIONAR PASTA DOS PNGs");
+        layout.addView(btnPasta);
+
+        Button btnTxt = new Button(this);
+        btnTxt.setText("📄 SELECIONAR TXT COM NOMES");
+        layout.addView(btnTxt);
+
+        TextView lblPorcentagem = new TextView(this);
+        lblPorcentagem.setText(
+                "\nTamanho do texto (50–150%):"
+        );
+        lblPorcentagem.setTextSize(16);
+        layout.addView(lblPorcentagem);
+
+        edtPorcentagem = new EditText(this);
+        edtPorcentagem.setText("100");
+        edtPorcentagem.setInputType(
+                android.text.InputType.TYPE_CLASS_NUMBER |
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        );
+        layout.addView(edtPorcentagem);
+
+        TextView lblBorda = new TextView(this);
+        lblBorda.setText(
+                "\nEspessura da borda preta (0–10 px):"
+        );
+        lblBorda.setTextSize(16);
+        layout.addView(lblBorda);
+
+        edtBorda = new EditText(this);
+        edtBorda.setText("4");
+        edtBorda.setInputType(
+                android.text.InputType.TYPE_CLASS_NUMBER
+        );
+        layout.addView(edtBorda);
+
+        Button btnProcessar = new Button(this);
+        btnProcessar.setText("▶️ PROCESSAR NOMES NOVOS");
+        layout.addView(btnProcessar);
+
+        txtStatus = new TextView(this);
+        txtStatus.setText(
+                "\nNenhuma entrada selecionada."
+        );
+        txtStatus.setTextSize(15);
+        layout.addView(txtStatus);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(layout);
+        setContentView(scroll);
+
+        btnPasta.setOnClickListener(
+                v -> selecionarPasta()
+        );
+
+        btnTxt.setOnClickListener(
+                v -> selecionarTxt()
+        );
+
+        btnProcessar.setOnClickListener(
+                v -> iniciarProcessamento()
+        );
+    }
+
+    private void selecionarPasta() {
+        Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(
+                intent,
+                PICK_INPUT_FOLDER
+        );
+    }
+
+    private void selecionarTxt() {
+        Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT);
+
+        intent.setType("text/plain");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(
+                intent,
+                PICK_TXT
+        );
+    }
+
+    private void selecionarSaida() {
+        Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(
+                intent,
+                PICK_OUTPUT_FOLDER
+        );
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data
+    ) {
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+        if (resultCode != RESULT_OK || data == null) {
+            return;
+        }
+
+        Uri uri = data.getData();
+
+        if (uri == null) {
+            return;
+        }
+
+        try {
+            getContentResolver().takePersistableUriPermission(
+                    uri,
+                    data.getFlags() &
+                    (
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+            );
+        } catch (Exception ignored) {
+        }
+
+        if (requestCode == PICK_INPUT_FOLDER) {
+
+            inputFolderUri = uri;
+
+            txtStatus.setText(
+                    "📁 Pasta dos PNGs selecionada."
+            );
+
+        } else if (requestCode == PICK_TXT) {
+
+            txtUri = uri;
+
+            txtStatus.setText(
+                    "📄 TXT selecionado."
+            );
+
+        } else if (requestCode == PICK_OUTPUT_FOLDER) {
+
+            outputFolderUri = uri;
+
+            txtStatus.setText(
+                    "📂 Pasta de saída selecionada."
+            );
+
+            iniciarProcessamento();
+        }
+    }
+
+    private void iniciarProcessamento() {
+
+        if (inputFolderUri == null) {
+            Toast.makeText(
+                    this,
+                    "Selecione a pasta dos PNGs.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        if (txtUri == null) {
+            Toast.makeText(
+                    this,
+                    "Selecione o TXT com os nomes.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        if (outputFolderUri == null) {
+            selecionarSaida();
+            return;
+        }
+
+        float porcentagem;
+        int borda;
+
+        try {
+            porcentagem = Float.parseFloat(
+                    edtPorcentagem.getText()
+                            .toString()
+                            .trim()
+                            .replace(",", ".")
+            );
+
+            borda = Integer.parseInt(
+                    edtBorda.getText()
+                            .toString()
+                            .trim()
+            );
+
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    this,
+                    "Valor inválido.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        if (porcentagem < 50 || porcentagem > 150) {
+
+            Toast.makeText(
+                    this,
+                    "Use tamanho entre 50 e 150%.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        if (borda < 0 || borda > 10) {
+
+            Toast.makeText(
+                    this,
+                    "Use borda entre 0 e 10 px.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        final float escalaTexto = porcentagem;
+        final int espessuraBorda = borda;
+
+        txtStatus.setText(
+                "⏳ Preparando..."
+        );
+
+        new Thread(() -> {
+
+            try {
+
+                List<String> nomes =
+                        lerNomesTxt();
+
+                List<Uri> imagens =
+                        listarImagens(
+                                inputFolderUri
+                        );
+
+                if (nomes.isEmpty()) {
+                    throw new Exception(
+                            "O TXT não possui nomes."
+                    );
+                }
+
+                if (imagens.isEmpty()) {
+                    throw new Exception(
+                            "A pasta não possui imagens."
+                    );
+                }
+
+                if (nomes.size() != imagens.size()) {
+
+                    throw new Exception(
+                            "Quantidade diferente:\n\n" +
+                            "PNG encontrados: " +
+                            imagens.size() +
+                            "\n" +
+                            "Nomes no TXT: " +
+                            nomes.size() +
+                            "\n\n" +
+                            "É necessário ter a mesma " +
+                            "quantidade."
+                    );
+                }
+
+                Typeface fonte =
+                        Typeface.create(
+                                "sans-serif",
+                                Typeface.NORMAL
+                        );
+
+                Bitmap primeira =
+                        carregarBitmap(imagens.get(0));
+
+                if (primeira == null) {
+                    throw new Exception(
+                            "Não foi possível abrir a primeira imagem."
+                    );
+                }
+
+                int fontePx =
+                        criarTamanhoFonte(
+                                primeira,
+                                escalaTexto
+                        );
+
+                primeira.recycle();
+
+                int processados = 0;
+
+                for (int i = 0;
+                     i < imagens.size();
+                     i++) {
+
+                    final int indice = i + 1;
+
+                    Uri imagemUri =
+                            imagens.get(i);
+
+                    String nome =
+                            nomes.get(i);
+
+                    Bitmap original =
+                            carregarBitmap(imagemUri);
+
+                    if (original == null) {
+                        throw new Exception(
+                                "Não foi possível abrir a imagem " +
+                                obterNome(imagemUri)
+                        );
+                    }
+
+                    Bitmap resultado =
+                            processarImagem(
+                                    original,
+                                    nome,
+                                    fonte,
+                                    fontePx,
+                                    espessuraBorda
+                            );
+
+                    String nomeArquivo =
+                            obterNome(imagemUri);
+
+                    String base =
+                            removerExtensao(
+                                    nomeArquivo
+                            );
+
+                    salvarImagem(
+                            base + ".png",
+                            resultado
+                    );
+
+                    original.recycle();
+                    resultado.recycle();
+
+                    processados++;
+
+                    final int atual =
+                            processados;
+
+                    handler.post(() ->
+                            txtStatus.setText(
+                                    "⏳ Processando...\n\n" +
+                                    "Arquivo: " +
+                                    indice +
+                                    " / " +
+                                    imagens.size() +
+                                    "\n\n" +
+                                    "Nome: " +
+                                    nome
+                            )
+                    );
+                }
+
+                final int total =
+                        processados;
+
+                handler.post(() ->
+                        txtStatus.setText(
+                                "====================================\n" +
+                                "✅ CONCLUÍDO!\n" +
+                                "====================================\n\n" +
+                                "PNGs encontrados: " +
+                                imagens.size() +
+                                "\n" +
+                                "Nomes no TXT: " +
+                                nomes.size() +
+                                "\n" +
+                                "Processados: " +
+                                total +
+                                "\n\n" +
+                                "Tamanho: " +
+                                escalaTexto +
+                                "%\n" +
+                                "Borda: " +
+                                espessuraBorda +
+                                " px"
+                        )
+                );
+
+            } catch (Exception e) {
+
+                String erro =
+                        e.getMessage() == null
+                                ? e.toString()
+                                : e.getMessage();
+
+                handler.post(() ->
+                        txtStatus.setText(
+                                "❌ ERRO:\n\n" +
+                                erro
+                        )
+                );
+            }
+
+        }).start();
+    }
+
+    private List<String> lerNomesTxt()
+            throws Exception {
+
+        List<String> nomes =
+                new ArrayList<>();
+
+        InputStream in =
+                getContentResolver()
+                        .openInputStream(txtUri);
+
+        if (in == null) {
+            throw new Exception(
+                    "Não foi possível abrir o TXT."
+            );
+        }
+
+        BufferedReader reader =
+                new BufferedReader(
+                        new InputStreamReader(
+                                in,
+                                StandardCharsets.UTF_8
+                        )
+                );
+
+        String linha;
+
+        while ((linha = reader.readLine()) != null) {
+
+            if (linha.startsWith("\uFEFF")) {
+                linha =
+                        linha.substring(1);
+            }
+
+            linha = linha.trim();
+
+            if (!linha.isEmpty()) {
+                nomes.add(linha);
+            }
+        }
+
+        reader.close();
+
+        return nomes;
+    }
+
+    private List<Uri> listarImagens(
+            Uri treeUri
+    ) {
+
+        List<Uri> resultado =
+                new ArrayList<>();
+
+        listarImagensRecursivo(
+                treeUri,
+                resultado
+        );
+
+        Collections.sort(
+                resultado,
+                new Comparator<Uri>() {
+                    @Override
+                    public int compare(
+                            Uri a,
+                            Uri b
+                    ) {
+                        return obterNome(a)
+                                .compareToIgnoreCase(
+                                        obterNome(b)
+                                );
+                    }
+                }
+        );
+
+        return resultado;
+    }
+
+    private void listarImagensRecursivo(
+            Uri treeUri,
+            List<Uri> resultado
+    ) {
+
+        String documentId =
+                DocumentsContract
+                        .getTreeDocumentId(
+                                treeUri
+                        );
+
+        Uri childrenUri =
+                DocumentsContract
+                        .buildChildDocumentsUriUsingTree(
+                                treeUri,
+                                documentId
+                        );
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        childrenUri,
+                        new String[]{
+                                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document.COLUMN_MIME_TYPE
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor == null) {
+            return;
+        }
+
+        try {
+
+            while (cursor.moveToNext()) {
+
+                String id =
+                        cursor.getString(0);
+
+                String nome =
+                        cursor.getString(1);
+
+                String mime =
+                        cursor.getString(2);
+
+                Uri childUri =
+                        DocumentsContract
+                                .buildDocumentUriUsingTree(
+                                        treeUri,
+                                        id
+                                );
+
+                if (DocumentsContract
+                        .Document
+                        .MIME_TYPE_DIR
+                        .equals(mime)) {
+
+                    listarImagensRecursivo(
+                            childUri,
+                            resultado
+                    );
+
+                } else if (
+                        nome != null &&
+                        (
+                            nome.toLowerCase()
+                                    .endsWith(".png") ||
+                            nome.toLowerCase()
+                                    .endsWith(".jpg") ||
+                            nome.toLowerCase()
+                                    .endsWith(".jpeg") ||
+                            nome.toLowerCase()
+                                    .endsWith(".webp")
+                        )
+                ) {
+
+                    resultado.add(
+                            childUri
+                    );
+                }
+            }
+
+        } finally {
+            cursor.close();
+        }
+    }
+
+    private Bitmap carregarBitmap(
+            Uri uri
+    ) throws Exception {
+
+        InputStream in =
+                getContentResolver()
+                        .openInputStream(uri);
+
+        if (in == null) {
+            return null;
+        }
+
+        Bitmap bitmap =
+                BitmapFactory.decodeStream(in);
+
+        in.close();
+
+        return bitmap;
+    }
+
+    private int criarTamanhoFonte(
+            Bitmap imagem,
+            float porcentagem
+    ) {
+
+        int largura =
+                imagem.getWidth();
+
+        int altura =
+                imagem.getHeight();
+
+        int[] pixels =
+                new int[
+                        largura * altura
+                ];
+
+        imagem.getPixels(
+                pixels,
+                0,
+                largura,
+                0,
+                0,
+                largura,
+                altura
+        );
+
+        int topo = altura;
+        int baixo = 0;
+
+        boolean encontrou = false;
+
+        for (int y = 0;
+             y < altura;
+             y++) {
+
+            for (int x = 0;
+                 x < largura;
+                 x++) {
+
+                int alpha =
+                        Color.alpha(
+                                pixels[
+                                    y * largura + x
+                                ]
+                        );
+
+                if (alpha > 0) {
+
+                    encontrou = true;
+
+                    if (y < topo) {
+                        topo = y;
+                    }
+
+                    if (y + 1 > baixo) {
+                        baixo = y + 1;
+                    }
+                }
+            }
+        }
+
+        if (!encontrou) {
+            return 16;
+        }
+
+        int alturaNome =
+                Math.max(
+                        1,
+                        baixo - topo
+                );
+
+        return Math.max(
+                1,
+                Math.round(
+                        alturaNome *
+                        ESCALA_SAIDA *
+                        0.78f *
+                        porcentagem /
+                        100f
+                )
+        );
+    }
+
+    private Bitmap processarImagem(
+            Bitmap original,
+            String novoNome,
+            Typeface typeface,
+            int fontePx,
+            int strokePx
+    ) {
+
+        int largura =
+                original.getWidth() *
+                ESCALA_SAIDA;
+
+        int altura =
+                original.getHeight() *
+                ESCALA_SAIDA;
+
+        int ow =
+                original.getWidth();
+
+        int oh =
+                original.getHeight();
+
+        int[] pixels =
+                new int[ow * oh];
+
+        original.getPixels(
+                pixels,
+                0,
+                ow,
+                0,
+                0,
+                ow,
+                oh
+        );
+
+        int esquerda = ow;
+        int topo = oh;
+        int direita = 0;
+        int baixo = 0;
+
+        boolean encontrou = false;
+
+        for (int y = 0;
+             y < oh;
+             y++) {
+
+            for (int x = 0;
+                 x < ow;
+                 x++) {
+
+                if (Color.alpha(
+                        pixels[y * ow + x]
+                ) > 0) {
+
+                    encontrou = true;
+
+                    if (x < esquerda) {
+                        esquerda = x;
+                    }
+
+                    if (y < topo) {
+                        topo = y;
+                    }
+
+                    if (x + 1 > direita) {
+                        direita = x + 1;
+                    }
+
+                    if (y + 1 > baixo) {
+                        baixo = y + 1;
+                    }
+                }
+            }
+        }
+
+        if (!encontrou) {
+
+            Bitmap vazio =
+                    Bitmap.createBitmap(
+                            largura,
+                            altura,
+                            Bitmap.Config.ARGB_8888
+                    );
+
+            vazio.eraseColor(
+                    Color.TRANSPARENT
+            );
+
+            return vazio;
+        }
+
+        float areaX =
+                esquerda *
+                ESCALA_SAIDA;
+
+        float areaY =
+                topo *
+                ESCALA_SAIDA;
+
+        float areaW =
+                Math.max(
+                        1,
+                        (direita - esquerda) *
+                        ESCALA_SAIDA
+                );
+
+        float areaH =
+                Math.max(
+                        1,
+                        (baixo - topo) *
+                        ESCALA_SAIDA
+                );
+
+        Bitmap saida =
+                Bitmap.createBitmap(
+                        largura,
+                        altura,
+                        Bitmap.Config.ARGB_8888
+                );
+
+        saida.eraseColor(
+                Color.TRANSPARENT
+        );
+
+        Canvas canvas =
+                new Canvas(saida);
+
+        Paint paint =
+                new Paint(
+                        Paint.ANTI_ALIAS_FLAG |
+                        Paint.SUBPIXEL_TEXT_FLAG
+                );
+
+        paint.setTypeface(
+                typeface
+        );
+
+        paint.setTextSize(
+                fontePx
+        );
+
+        paint.setColor(
+                Color.WHITE
+        );
+
+        paint.setStyle(
+                Paint.Style.FILL
+        );
+
+        paint.setStrokeWidth(
+                strokePx
+        );
+
+        Paint.FontMetrics fm =
+                paint.getFontMetrics();
+
+        float textoLargura =
+                paint.measureText(
+                        novoNome
+                );
+
+        float textoCentroX =
+                areaX +
+                areaW / 2f;
+
+        float textoCentroY =
+                areaY +
+                areaH / 2f;
+
+        float baseline =
+                textoCentroY -
+                (fm.ascent + fm.descent)
+                / 2f;
+
+        float x =
+                textoCentroX -
+                textoLargura / 2f;
+
+        if (strokePx > 0) {
+
+            Paint borda =
+                    new Paint(
+                            paint
+                    );
+
+            borda.setStyle(
+                    Paint.Style.STROKE
+            );
+
+            borda.setStrokeWidth(
+                    strokePx * 2f
+            );
+
+            borda.setColor(
+                    Color.BLACK
+            );
+
+            canvas.drawText(
+                    novoNome,
+                    x,
+                    baseline,
+                    borda
+            );
+        }
+
+        canvas.drawText(
+                novoNome,
+                x,
+                baseline,
+                paint
+        );
+
+        return saida;
+    }
+
+    private void salvarImagem(
+            String nomeArquivo,
+            Bitmap bitmap
+    ) throws Exception {
+
+        String documentId =
+                DocumentsContract
+                        .getTreeDocumentId(
+                                outputFolderUri
+                        );
+
+        Uri childrenUri =
+                DocumentsContract
+                        .buildChildDocumentsUriUsingTree(
+                                outputFolderUri,
+                                documentId
+                        );
+
+        Uri existente = null;
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        childrenUri,
+                        new String[]{
+                                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor != null) {
+
+            try {
+
+                while (cursor.moveToNext()) {
+
+                    String id =
+                            cursor.getString(0);
+
+                    String nome =
+                            cursor.getString(1);
+
+                    if (nomeArquivo.equals(
+                            nome
+                    )) {
+
+                        existente =
+                                DocumentsContract
+                                        .buildDocumentUriUsingTree(
+                                                outputFolderUri,
+                                                id
+                                        );
+
+                        break;
+                    }
+                }
+
+            } finally {
+                cursor.close();
+            }
+        }
+
+        Uri destino;
+
+        if (existente != null) {
+            destino = existente;
+        } else {
+            Uri pastaDocumento =
+                    DocumentsContract.buildDocumentUriUsingTree(
+                            outputFolderUri,
+                            DocumentsContract.getTreeDocumentId(
+                                    outputFolderUri
+                            )
+                    );
+
+            destino =
+                    DocumentsContract.createDocument(
+                            getContentResolver(),
+                            pastaDocumento,
+                            "image/png",
+                            nomeArquivo
+                    );
+        }
+
+        OutputStream out =
+                getContentResolver()
+                        .openOutputStream(
+                                destino,
+                                "wt"
+                        );
+
+        if (out == null) {
+            throw new Exception(
+                    "Não foi possível criar " +
+                    nomeArquivo
+            );
+        }
+
+        bitmap.compress(
+                Bitmap.CompressFormat.PNG,
+                100,
+                out
+        );
+
+        out.flush();
+        out.close();
+    }
+
+    private String obterNome(
+            Uri uri
+    ) {
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        uri,
+                        new String[]{
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor != null) {
+
+            try {
+
+                if (cursor.moveToFirst()) {
+                    return cursor.getString(0);
+                }
+
+            } finally {
+                cursor.close();
+            }
+        }
+
+        return "arquivo.png";
+    }
+
+    private String removerExtensao(
+            String nome
+    ) {
+
+        int ponto =
+                nome.lastIndexOf('.');
+
+        if (ponto > 0) {
+            return nome.substring(
+                    0,
+                    ponto
+            );
+        }
+
+        return nome;
+    }
+}

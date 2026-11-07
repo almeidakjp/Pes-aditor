@@ -1,0 +1,46 @@
+package com.peseditor;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.content.Intent;
+import android.widget.Button;
+import android.widget.Toast;
+
+public class MainActivity extends Activity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        setContentView(R.layout.activity_main);
+
+        Button btnFace = findViewById(R.id.btnFace);
+        Button btnHair = findViewById(R.id.btnHair);
+        Button btnCpk = findViewById(R.id.btnCpk);
+        Button btnNomes = findViewById(R.id.btnNomes);
+        Button btnRenomear = findViewById(R.id.btnRenomear);
+
+        btnFace.setOnClickListener(v -> {
+            Intent intent = new Intent(this, FaceImportActivity.class);
+            startActivity(intent);
+        });
+
+        btnHair.setOnClickListener(v -> {
+            Intent intent = new Intent(this, HairImportActivity.class);
+            startActivity(intent);
+        });
+
+        btnCpk.setOnClickListener(v -> {
+            Intent intent = new Intent(this, CpkActivity.class);
+            startActivity(intent);
+        });
+
+        btnNomes.setOnClickListener(v -> {
+            Intent intent = new Intent(this, NomesActivity.class);
+            startActivity(intent);
+        });
+
+        btnRenomear.setOnClickListener(v ->
+                Toast.makeText(this, "RENOMEAR", Toast.LENGTH_SHORT).show());
+    }
+}

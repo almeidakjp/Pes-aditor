@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#121314" android:fillViewport="true" android:clipToPadding="false">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:paddingLeft="22dp" android:paddingRight="22dp"
+        android:paddingTop="28dp" android:paddingBottom="28dp">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:padding="22dp" android:background="@drawable/bg_home_header"
+            android:layout_marginBottom="24dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="PES EDITOR" android:textColor="#FFFFFF" android:textSize="28sp"
+                android:textStyle="bold" android:letterSpacing="0.04"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Ferramentas para edição PES" android:textColor="#9AA0A6" android:textSize="14sp"
+                android:layout_marginTop="5dp"/>
+        </LinearLayout>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="FERRAMENTAS" android:textColor="#8F9499" android:textSize="12sp"
+            android:textStyle="bold" android:letterSpacing="0.12" android:layout_marginLeft="4dp"
+            android:layout_marginBottom="10dp"/>
+
+        <Button android:id="@+id/btnFace" android:layout_width="match_parent" android:layout_height="72dp"
+            android:text="FACE IMPORT" android:textColor="#F1F3F4" android:textSize="17sp" android:textStyle="bold"
+            android:gravity="center_vertical|start" android:paddingLeft="20dp" android:paddingRight="20dp"
+            android:drawableStart="@drawable/ic_face" android:drawablePadding="18dp"
+            android:background="@drawable/bg_home_button" android:backgroundTint="@null"
+            android:stateListAnimator="@null" android:layout_marginBottom="12dp"/>
+
+        <Button android:id="@+id/btnHair" android:layout_width="match_parent" android:layout_height="72dp"
+            android:text="HAIR IMPORT" android:textColor="#F1F3F4" android:textSize="17sp" android:textStyle="bold"
+            android:gravity="center_vertical|start" android:paddingLeft="20dp" android:paddingRight="20dp"
+            android:drawableStart="@drawable/ic_hair" android:drawablePadding="18dp"
+            android:background="@drawable/bg_home_button" android:backgroundTint="@null"
+            android:stateListAnimator="@null" android:layout_marginBottom="12dp"/>
+
+        <Button android:id="@+id/btnCpk" android:layout_width="match_parent" android:layout_height="72dp"
+            android:text="CPK TOOL" android:textColor="#F1F3F4" android:textSize="17sp" android:textStyle="bold"
+            android:gravity="center_vertical|start" android:paddingLeft="20dp" android:paddingRight="20dp"
+            android:drawableStart="@drawable/ic_box" android:drawablePadding="18dp"
+            android:background="@drawable/bg_home_button" android:backgroundTint="@null"
+            android:stateListAnimator="@null" android:layout_marginBottom="12dp"/>
+
+        <Button android:id="@+id/btnZlib" android:layout_width="match_parent" android:layout_height="72dp"
+            android:text="ZLIB TOOL" android:textColor="#F1F3F4" android:textSize="17sp" android:textStyle="bold"
+            android:gravity="center_vertical|start" android:paddingLeft="20dp" android:paddingRight="20dp"
+            android:drawableStart="@drawable/ic_zlib" android:drawablePadding="18dp"
+            android:background="@drawable/bg_home_button" android:backgroundTint="@null"
+            android:stateListAnimator="@null" android:layout_marginBottom="12dp"/>
+
+        <Button android:id="@+id/btnNomes" android:layout_width="match_parent" android:layout_height="72dp"
+            android:text="PLAYER NAMES" android:textColor="#F1F3F4" android:textSize="17sp" android:textStyle="bold"
+            android:gravity="center_vertical|start" android:paddingLeft="20dp" android:paddingRight="20dp"
+            android:drawableStart="@drawable/ic_names" android:drawablePadding="18dp"
+            android:background="@drawable/bg_home_button" android:backgroundTint="@null"
+            android:stateListAnimator="@null" android:layout_marginBottom="12dp"/>
+
+        <Button android:id="@+id/btnRenomear" android:layout_width="match_parent" android:layout_height="72dp"
+            android:text="BATCH RENOME" android:textColor="#F1F3F4" android:textSize="17sp" android:textStyle="bold"
+            android:gravity="center_vertical|start" android:paddingLeft="20dp" android:paddingRight="20dp"
+            android:drawableStart="@drawable/ic_rename" android:drawablePadding="18dp"
+            android:background="@drawable/bg_home_button" android:backgroundTint="@null"
+            android:stateListAnimator="@null"/>
+    </LinearLayout>
+</ScrollView>

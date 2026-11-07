@@ -1,0 +1,709 @@
+package com.peseditor;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.graphics.Color;
+import android.view.Gravity;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.graphics.BitmapFactory;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+
+public class RenomearActivity extends Activity {
+
+    private android.net.Uri pastaUri;
+    private TextView txtStatus;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER_HORIZONTAL);
+        layout.setPadding(24, 24, 24, 24);
+
+        TextView titulo = new TextView(this);
+        titulo.setText("🔤 RENOMEAR");
+        titulo.setTextSize(28);
+        titulo.setTextColor(Color.BLACK);
+        titulo.setGravity(Gravity.CENTER);
+        titulo.setPadding(0, 0, 0, 25);
+        layout.addView(titulo);
+
+        TextView explicacao = new TextView(this);
+        explicacao.setText(
+                "Renomeia os PNGs usando OCR.\n\n" +
+                "O código original do arquivo é usado para gerar o #Resultados.txt."
+        );
+        explicacao.setTextSize(16);
+        layout.addView(explicacao);
+
+        Button btnPasta = new Button(this);
+        btnPasta.setText("📁 SELECIONAR PASTA DOS PNGs");
+        btnPasta.setTextSize(17);
+        layout.addView(btnPasta);
+
+        Button btnProcessar = new Button(this);
+        btnProcessar.setText("▶️ PROCESSAR RENOMEAR");
+        btnProcessar.setTextSize(17);
+        layout.addView(btnProcessar);
+
+        txtStatus = new TextView(this);
+        txtStatus.setText("\nNenhuma pasta selecionada.");
+        txtStatus.setTextSize(15);
+        layout.addView(txtStatus);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(layout);
+        setContentView(scroll);
+
+        btnPasta.setOnClickListener(v -> selecionarPasta());
+
+        btnProcessar.setOnClickListener(v -> {
+
+            if (pastaUri == null) {
+
+                android.widget.Toast.makeText(
+                        this,
+                        "Selecione a pasta dos PNGs primeiro.",
+                        android.widget.Toast.LENGTH_SHORT
+                ).show();
+
+                return;
+            }
+
+            new Thread(() -> {
+
+                try {
+
+                    java.util.List<android.net.Uri> arquivos =
+                            listarPngs();
+
+                    if (arquivos.isEmpty()) {
+
+                        runOnUiThread(() ->
+                                txtStatus.setText(
+                                        "⚠️ Nenhum PNG encontrado."
+                                )
+                        );
+
+                        return;
+                    }
+
+                    java.util.List<String> resultados =
+                            new java.util.ArrayList<>();
+
+                    java.util.List<String> nomes =
+                            new java.util.ArrayList<>();
+
+                    int processados = 0;
+
+                    for (android.net.Uri arquivo : arquivos) {
+
+                        processados++;
+
+                        final int atual = processados;
+                        final String nomeArquivo =
+                                obterNome(arquivo);
+
+                        runOnUiThread(() ->
+                                txtStatus.setText(
+                                        "⏳ PROCESSANDO RENOMEAR...\n\n" +
+                                        "Arquivo: " +
+                                        atual +
+                                        " / " +
+                                        arquivos.size() +
+                                        "\n\n" +
+                                        nomeArquivo
+                                )
+                        );
+
+                        java.io.InputStream in =
+                                getContentResolver()
+                                        .openInputStream(arquivo);
+
+                        if (in == null) {
+
+                            resultados.add(
+                                    "0000000000000000 " +
+                                    extrairCodigo(nomeArquivo) +
+                                    "=Efootball/Radar Nomes/[ERRO]"
+                            );
+
+                            continue;
+                        }
+
+                        java.io.ByteArrayOutputStream baos =
+                                new java.io.ByteArrayOutputStream();
+
+                        byte[] buffer = new byte[8192];
+                        int n;
+
+                        while ((n = in.read(buffer)) != -1) {
+                            baos.write(buffer, 0, n);
+                        }
+
+                        in.close();
+
+                        String nomeLido = "";
+
+                        try {
+                            nomeLido =
+                                    executarOCR(
+                                            baos.toByteArray()
+                                    );
+                        } catch (Exception ignored) {
+                        }
+
+                        String codigo =
+                                extrairCodigo(nomeArquivo);
+
+                        if (nomeLido == null ||
+                                nomeLido.trim().isEmpty()) {
+
+                            resultados.add(
+                                    "0000000000000000 " +
+                                    codigo +
+                                    "=Efootball/Radar Nomes/[ERRO OCR]"
+                            );
+
+                            continue;
+                        }
+
+                        nomeLido =
+                                limparNome(nomeLido);
+
+                        if (nomeLido.isEmpty()) {
+
+                            resultados.add(
+                                    "0000000000000000 " +
+                                    codigo +
+                                    "=Efootball/Radar Nomes/[ERRO OCR]"
+                            );
+
+                            continue;
+                        }
+
+                        String nomeDestino =
+                                nomeLido + ".png";
+
+                        java.util.HashSet<String> usados =
+                                new java.util.HashSet<>();
+
+                        for (android.net.Uri u :
+                                listarPngs()) {
+
+                            String existente =
+                                    obterNome(u);
+
+                            usados.add(
+                                    existente.toLowerCase(
+                                            java.util.Locale.ROOT
+                                    )
+                            );
+                        }
+
+                        int numero = 2;
+
+                        while (usados.contains(
+                                nomeDestino.toLowerCase(
+                                        java.util.Locale.ROOT
+                                )
+                        )) {
+
+                            nomeDestino =
+                                    nomeLido +
+                                    " (" +
+                                    numero +
+                                    ").png";
+
+                            numero++;
+                        }
+
+                        android.net.Uri novoUri = null;
+
+                        try {
+
+                            novoUri =
+                                    android.provider.DocumentsContract
+                                            .renameDocument(
+                                                    getContentResolver(),
+                                                    arquivo,
+                                                    nomeDestino
+                                            );
+
+                        } catch (Exception erroRenomear) {
+
+                            novoUri = null;
+                        }
+
+                        if (novoUri == null) {
+
+                            resultados.add(
+                                    "0000000000000000 " +
+                                    codigo +
+                                    "=Efootball/Radar Nomes/[ERRO]"
+                            );
+
+                            continue;
+                        }
+
+                        resultados.add(
+                                "0000000000000000 " +
+                                codigo +
+                                "=Efootball/Radar Nomes/" +
+                                nomeDestino
+                        );
+
+                        String nomeFinal =
+                                nomeDestino.substring(
+                                        0,
+                                        nomeDestino.length() - 4
+                                );
+
+                        nomes.add(nomeFinal);
+                    }
+
+                    java.util.Collections.sort(
+                            nomes,
+                            String.CASE_INSENSITIVE_ORDER
+                    );
+
+                    StringBuilder textoResultados =
+                            new StringBuilder();
+
+                    for (String linha : resultados) {
+                        textoResultados
+                                .append(linha)
+                                .append("\n");
+                    }
+
+                    StringBuilder textoNomes =
+                            new StringBuilder();
+
+                    for (String nome : nomes) {
+                        textoNomes
+                                .append(nome)
+                                .append("\n");
+                    }
+
+                    salvarTextoNaPasta(
+                            "#Resultados.txt",
+                            textoResultados.toString()
+                    );
+
+                    salvarTextoNaPasta(
+                            "#Nomes.txt",
+                            textoNomes.toString()
+                    );
+
+                    final int total =
+                            nomes.size();
+
+                    runOnUiThread(() ->
+                            txtStatus.setText(
+                                    "====================================\n" +
+                                    "✅ CONCLUÍDO!\n" +
+                                    "====================================\n\n" +
+                                    "PNGs encontrados: " +
+                                    arquivos.size() +
+                                    "\n" +
+                                    "Renomeados: " +
+                                    total +
+                                    "\n\n" +
+                                    "#Resultados.txt criado.\n" +
+                                    "#Nomes.txt criado."
+                            )
+                    );
+
+                } catch (Exception e) {
+
+                    final String erro =
+                            e.getMessage() == null
+                                    ? e.toString()
+                                    : e.getMessage();
+
+                    runOnUiThread(() ->
+                            txtStatus.setText(
+                                    "❌ ERRO:\n\n" +
+                                    erro
+                            )
+                    );
+                }
+
+            }).start();
+        });
+    }
+
+    private void salvarTextoNaPasta(
+            String nomeArquivo,
+            String conteudo
+    ) throws Exception {
+
+        android.net.Uri existente = null;
+
+        String documentId =
+                android.provider.DocumentsContract
+                        .getTreeDocumentId(pastaUri);
+
+        android.net.Uri childrenUri =
+                android.provider.DocumentsContract
+                        .buildChildDocumentsUriUsingTree(
+                                pastaUri,
+                                documentId
+                        );
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        childrenUri,
+                        new String[]{
+                                android.provider.DocumentsContract.Document
+                                        .COLUMN_DOCUMENT_ID,
+                                android.provider.DocumentsContract.Document
+                                        .COLUMN_DISPLAY_NAME
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor != null) {
+
+            try {
+
+                while (cursor.moveToNext()) {
+
+                    String id = cursor.getString(0);
+                    String nome = cursor.getString(1);
+
+                    if (nomeArquivo.equals(nome)) {
+
+                        existente =
+                                android.provider.DocumentsContract
+                                        .buildDocumentUriUsingTree(
+                                                pastaUri,
+                                                id
+                                        );
+
+                        break;
+                    }
+                }
+
+            } finally {
+                cursor.close();
+            }
+        }
+
+        android.net.Uri destino;
+
+        if (existente != null) {
+
+            destino = existente;
+
+        } else {
+
+            destino =
+                    android.provider.DocumentsContract
+                            .createDocument(
+                                    getContentResolver(),
+                                    pastaUri,
+                                    "text/plain",
+                                    nomeArquivo
+                            );
+        }
+
+        if (destino == null) {
+            throw new Exception(
+                    "Não foi possível criar " +
+                    nomeArquivo
+            );
+        }
+
+        java.io.OutputStream out =
+                getContentResolver()
+                        .openOutputStream(
+                                destino,
+                                "wt"
+                        );
+
+        if (out == null) {
+            throw new Exception(
+                    "Não foi possível escrever " +
+                    nomeArquivo
+            );
+        }
+
+        out.write(
+                conteudo.getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8
+                )
+        );
+
+        out.flush();
+        out.close();
+    }
+
+    private java.util.List<android.net.Uri> listarPngs() {
+
+        java.util.List<android.net.Uri> arquivos =
+                new java.util.ArrayList<>();
+
+        if (pastaUri == null) {
+            return arquivos;
+        }
+
+        String documentId =
+                android.provider.DocumentsContract
+                        .getTreeDocumentId(pastaUri);
+
+        android.net.Uri childrenUri =
+                android.provider.DocumentsContract
+                        .buildChildDocumentsUriUsingTree(
+                                pastaUri,
+                                documentId
+                        );
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        childrenUri,
+                        new String[]{
+                                android.provider.DocumentsContract.Document
+                                        .COLUMN_DOCUMENT_ID,
+                                android.provider.DocumentsContract.Document
+                                        .COLUMN_DISPLAY_NAME
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor == null) {
+            return arquivos;
+        }
+
+        try {
+
+            while (cursor.moveToNext()) {
+
+                String id = cursor.getString(0);
+                String nome = cursor.getString(1);
+
+                if (nome == null) {
+                    continue;
+                }
+
+                if (!nome.toLowerCase().endsWith(".png")) {
+                    continue;
+                }
+
+                android.net.Uri arquivo =
+                        android.provider.DocumentsContract
+                                .buildDocumentUriUsingTree(
+                                        pastaUri,
+                                        id
+                                );
+
+                arquivos.add(arquivo);
+            }
+
+        } finally {
+            cursor.close();
+        }
+
+        return arquivos;
+    }
+
+    private String obterNome(android.net.Uri uri) {
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        uri,
+                        new String[]{
+                                android.provider.DocumentsContract.Document
+                                        .COLUMN_DISPLAY_NAME
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor != null) {
+
+            try {
+
+                if (cursor.moveToFirst()) {
+                    return cursor.getString(0);
+                }
+
+            } finally {
+                cursor.close();
+            }
+        }
+
+        return "arquivo.png";
+    }
+
+    private String limparNome(String texto) {
+
+        if (texto == null) {
+            return "";
+        }
+
+        texto = texto.trim();
+        texto = texto.replaceAll("\\s+", " ");
+
+        texto = texto.replace("G, ", "G. ");
+        texto = texto.replace("J, ", "J. ");
+        texto = texto.replace("T, ", "T. ");
+
+        texto = texto.replaceAll("[/\\\\:*?\"<>|]", "-");
+
+        return texto.trim();
+    }
+
+    private String extrairCodigo(String nome) {
+
+        if (nome == null) {
+            return "";
+        }
+
+        int ponto = nome.lastIndexOf('.');
+
+        String base;
+
+        if (ponto > 0) {
+            base = nome.substring(0, ponto);
+        } else {
+            base = nome;
+        }
+
+        if (base.length() < 8) {
+            return "";
+        }
+
+        return base.substring(base.length() - 8);
+    }
+
+    private String executarOCR(byte[] dados) throws Exception {
+
+        android.graphics.Bitmap bitmap =
+                android.graphics.BitmapFactory.decodeByteArray(
+                        dados,
+                        0,
+                        dados.length
+                );
+
+        if (bitmap == null) {
+            return "";
+        }
+
+        android.graphics.Bitmap preparado =
+                android.graphics.Bitmap.createScaledBitmap(
+                        bitmap,
+                        bitmap.getWidth() * 10,
+                        bitmap.getHeight() * 10,
+                        true
+                );
+
+        com.google.mlkit.vision.common.InputImage image =
+                com.google.mlkit.vision.common.InputImage.fromBitmap(
+                        preparado,
+                        0
+                );
+
+        com.google.mlkit.vision.text.TextRecognizer recognizer =
+                com.google.mlkit.vision.text.TextRecognition.getClient(
+                        com.google.mlkit.vision.text.latin.TextRecognizerOptions
+                                .DEFAULT_OPTIONS
+                );
+
+        java.util.concurrent.CountDownLatch latch =
+                new java.util.concurrent.CountDownLatch(1);
+
+        final String[] resultado = {""};
+        final Exception[] erro = {null};
+
+        recognizer.process(image)
+                .addOnSuccessListener(
+                        texto -> {
+                            resultado[0] =
+                                    limparNome(texto.getText());
+                            latch.countDown();
+                        }
+                )
+                .addOnFailureListener(
+                        e -> {
+                            erro[0] = e;
+                            latch.countDown();
+                        }
+                );
+
+        boolean terminou =
+                latch.await(
+                        20,
+                        java.util.concurrent.TimeUnit.SECONDS
+                );
+
+        recognizer.close();
+
+        preparado.recycle();
+        bitmap.recycle();
+
+        if (!terminou || erro[0] != null) {
+            return "";
+        }
+
+        return resultado[0];
+    }
+
+    private void selecionarPasta() {
+        android.content.Intent intent =
+                new android.content.Intent(
+                        android.content.Intent.ACTION_OPEN_DOCUMENT_TREE
+                );
+
+        intent.addFlags(
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(intent, 701);
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            android.content.Intent data
+    ) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == 701 &&
+                resultCode == RESULT_OK &&
+                data != null &&
+                data.getData() != null) {
+
+            pastaUri = data.getData();
+
+            try {
+                getContentResolver().takePersistableUriPermission(
+                        pastaUri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                );
+            } catch (Exception ignored) {
+            }
+
+            txtStatus.setText(
+                    "📁 Pasta dos PNGs selecionada."
+            );
+        }
+    }
+}

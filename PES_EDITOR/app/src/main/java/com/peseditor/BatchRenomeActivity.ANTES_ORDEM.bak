@@ -1,0 +1,1024 @@
+package com.peseditor;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.DocumentsContract;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.view.View;
+import android.widget.Toast;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+public class BatchRenomeActivity extends Activity {
+
+    private static final int REQUEST_ARQUIVOS = 801;
+    private static final int REQUEST_LISTA = 802;
+    private static final int REQUEST_RESULTADO = 803;
+
+    private Uri pastaArquivosUri;
+    private Uri listaUri;
+    private Uri pastaResultadoUri;
+
+    private TextView txtStatus;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(30, 30, 30, 30);
+
+        TextView titulo = new TextView(this);
+        titulo.setText("📦 BATCH RENOME");
+        titulo.setTextSize(24);
+        layout.addView(titulo);
+
+        TextView explicacao = new TextView(this);
+        explicacao.setText(
+                "\nRenomeação em massa usando uma lista.\n" +
+                "Formato: antigo = novo\n"
+        );
+        explicacao.setTextSize(16);
+        layout.addView(explicacao);
+
+        Button btnArquivos = new Button(this);
+        btnArquivos.setText("📁 SELECIONAR ARQUIVOS");
+        btnArquivos.setTextSize(17);
+        layout.addView(btnArquivos);
+
+        Button btnLista = new Button(this);
+        btnLista.setText("📄 SELECIONAR NOMES.TXT");
+        btnLista.setTextSize(17);
+        layout.addView(btnLista);
+
+        Button btnGerarLista = new Button(this);
+        btnGerarLista.setText("📄 GERAR LISTA DOS ARQUIVOS");
+        btnGerarLista.setTextSize(17);
+        layout.addView(btnGerarLista);
+
+        Button btnProcessar = new Button(this);
+        btnProcessar.setText("▶️ PROCESSAR BATCH RENOME");
+        btnProcessar.setTextSize(17);
+        layout.addView(btnProcessar);
+
+        txtStatus = new TextView(this);
+        txtStatus.setText("\nNenhuma seleção feita.");
+        txtStatus.setTextSize(15);
+        layout.addView(txtStatus);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(layout);
+        setContentView(scroll);
+
+        btnArquivos.setOnClickListener(v -> selecionarPasta(
+                REQUEST_ARQUIVOS
+        ));
+
+        btnLista.setOnClickListener(v -> selecionarLista());
+
+        btnGerarLista.setOnClickListener(v -> gerarListaArquivos());
+
+        btnProcessar.setOnClickListener(v -> {
+            if (pastaArquivosUri == null) {
+                Toast.makeText(
+                        this,
+                        "Selecione a pasta dos arquivos.",
+                        Toast.LENGTH_SHORT
+                ).show();
+                return;
+            }
+
+            if (listaUri == null) {
+                Toast.makeText(
+                        this,
+                        "Selecione o nomes.txt.",
+                        Toast.LENGTH_SHORT
+                ).show();
+                return;
+            }
+
+            selecionarPasta(REQUEST_RESULTADO);
+        });
+    }
+
+    private void selecionarPasta(int requestCode) {
+
+        Intent intent = new Intent(
+                Intent.ACTION_OPEN_DOCUMENT_TREE
+        );
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(intent, requestCode);
+    }
+
+    private void selecionarLista() {
+
+        Intent intent = new Intent(
+                Intent.ACTION_OPEN_DOCUMENT
+        );
+
+        intent.setType("text/plain");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
+
+        startActivityForResult(intent, REQUEST_LISTA);
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data
+    ) {
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+        if (resultCode != RESULT_OK ||
+                data == null ||
+                data.getData() == null) {
+            return;
+        }
+
+        Uri uri = data.getData();
+
+        try {
+            if (requestCode == REQUEST_LISTA) {
+
+                getContentResolver().takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                );
+
+                listaUri = uri;
+
+                txtStatus.setText(
+                        "📄 NOMES.TXT selecionado."
+                );
+
+            } else {
+
+                getContentResolver().takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                );
+
+                if (requestCode == REQUEST_ARQUIVOS) {
+
+                    pastaArquivosUri = uri;
+
+                    txtStatus.setText(
+                            "📁 Pasta dos arquivos selecionada."
+                    );
+
+                } else if (requestCode == REQUEST_RESULTADO) {
+
+                    pastaResultadoUri = uri;
+
+                    txtStatus.setText(
+                            "📁 Pasta de resultado selecionada.\\n\\n" +
+                            "⏳ Processando..."
+                    );
+
+                    new Thread(() -> processar()).start();
+                }
+            }
+
+        } catch (Exception e) {
+
+            txtStatus.setText(
+                    "❌ ERRO AO SELECIONAR:\n\n" +
+                    e.getMessage()
+            );
+        }
+    }
+
+    private void iniciarProcessamento() {
+
+        if (pastaArquivosUri == null) {
+            Toast.makeText(
+                    this,
+                    "Selecione a pasta dos arquivos.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        if (listaUri == null) {
+            Toast.makeText(
+                    this,
+                    "Selecione o nomes.txt.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        if (pastaResultadoUri == null) {
+            Toast.makeText(
+                    this,
+                    "Selecione a pasta de resultado.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        new Thread(() -> processar()).start();
+    }
+
+    private void processar() {
+
+        try {
+
+            List<String[]> regras =
+                    carregarLista();
+
+            if (regras.isEmpty()) {
+
+                atualizarStatus(
+                        "❌ Nenhuma regra válida encontrada."
+                );
+
+                return;
+            }
+
+            List<Uri> arquivos =
+                    listarArquivos(pastaArquivosUri);
+
+            if (arquivos.isEmpty()) {
+
+                atualizarStatus(
+                        "❌ Nenhum arquivo encontrado."
+                );
+
+                return;
+            }
+
+            int sucesso = 0;
+            int naoEncontrados = 0;
+            int erros = 0;
+
+            StringBuilder relatorio =
+                    new StringBuilder();
+
+            relatorio.append(
+                    "========================================\n"
+            );
+            relatorio.append(
+                    "BATCH RENOME\n"
+            );
+            relatorio.append(
+                    "========================================\n\n"
+            );
+
+            /*
+             * Cada regra pode ser:
+             *
+             * 1) antigo = novo
+             *
+             * ou:
+             *
+             * novo
+             *
+             * No segundo caso, o arquivo é escolhido
+             * pela posição dentro da pasta.
+             */
+
+            for (int i = 0; i < regras.size(); i++) {
+
+                String antigo = regras.get(i)[0];
+                String novo = regras.get(i)[1];
+
+                Uri origem = null;
+
+                /*
+                 * FORMATO:
+                 *
+                 * arquivo_original = novo_nome
+                 */
+                if (!antigo.isEmpty()) {
+
+                    origem =
+                            encontrarArquivo(
+                                    arquivos,
+                                    antigo
+                            );
+
+                /*
+                 * FORMATO POR ORDEM:
+                 *
+                 * novo_nome
+                 *
+                 * Nesse caso o primeiro campo fica vazio
+                 * e o segundo contém o novo nome.
+                 */
+                } else if (i < arquivos.size()) {
+
+                    origem = arquivos.get(i);
+                }
+
+                if (origem == null) {
+
+                    naoEncontrados++;
+
+                    relatorio.append(
+                            "[NÃO ENCONTRADO] "
+                    );
+
+                    if (!antigo.isEmpty()) {
+                        relatorio.append(antigo);
+                    } else {
+                        relatorio.append(
+                                "posição " + (i + 1)
+                        );
+                    }
+
+                    relatorio.append("\n");
+
+                    continue;
+                }
+
+                String nomeDestino = novo;
+
+                Uri destino = null;
+
+                try {
+
+                    destino =
+                            criarArquivo(
+                                    nomeDestino
+                            );
+
+                    if (destino == null) {
+
+                        throw new Exception(
+                                "Não foi possível criar o destino."
+                        );
+                    }
+
+                    copiarArquivo(
+                            origem,
+                            destino
+                    );
+
+                    sucesso++;
+
+                    relatorio.append(
+                            "[OK] "
+                    );
+
+                    relatorio.append(
+                            obterNome(origem)
+                    );
+
+                    relatorio.append(
+                            " -> "
+                    );
+
+                    relatorio.append(
+                            nomeDestino
+                    );
+
+                    relatorio.append("\n");
+
+                } catch (Exception e) {
+
+                    erros++;
+
+                    if (destino != null) {
+
+                        try {
+
+                            DocumentsContract.deleteDocument(
+                                    getContentResolver(),
+                                    destino
+                            );
+
+                        } catch (Exception ignored) {
+                        }
+                    }
+
+                    relatorio.append(
+                            "[ERRO] "
+                    );
+
+                    relatorio.append(
+                            obterNome(origem)
+                    );
+
+                    relatorio.append(
+                            " -> "
+                    );
+
+                    relatorio.append(
+                            nomeDestino
+                    );
+
+                    relatorio.append(
+                            " : "
+                    );
+
+                    relatorio.append(
+                            e.getMessage()
+                    );
+
+                    relatorio.append("\n");
+                }
+            }
+
+            relatorio.append("\n");
+            relatorio.append(
+                    "========================================\n"
+            );
+
+            relatorio.append(
+                    "Concluído: "
+            );
+
+            relatorio.append(
+                    sucesso
+            );
+
+            relatorio.append(
+                    " arquivo(s)\n"
+            );
+
+            relatorio.append(
+                    "Não encontrados: "
+            );
+
+            relatorio.append(
+                    naoEncontrados
+            );
+
+            relatorio.append("\n");
+
+            relatorio.append(
+                    "Erros: "
+            );
+
+            relatorio.append(
+                    erros
+            );
+
+            relatorio.append("\n");
+
+            relatorio.append(
+                    "Originais: preservados\n"
+            );
+
+            relatorio.append(
+                    "========================================"
+            );
+
+            final String resultado =
+                    relatorio.toString();
+
+            atualizarStatus(resultado);
+
+        } catch (Exception e) {
+
+            final String erro =
+                    e.getMessage() == null
+                            ? e.toString()
+                            : e.getMessage();
+
+            atualizarStatus(
+                    "❌ ERRO:\n\n" + erro
+            );
+        }
+    }
+
+    private List<String[]> carregarLista()
+            throws Exception {
+
+        List<String[]> lista =
+                new ArrayList<>();
+
+        InputStream in =
+                getContentResolver()
+                        .openInputStream(listaUri);
+
+        if (in == null) {
+            throw new Exception(
+                    "Não foi possível abrir o nomes.txt."
+            );
+        }
+
+        BufferedReader reader =
+                new BufferedReader(
+                        new InputStreamReader(
+                                in,
+                                StandardCharsets.UTF_8
+                        )
+                );
+
+        String linha;
+
+        while ((linha = reader.readLine()) != null) {
+
+            linha = linha.trim();
+
+            if (linha.isEmpty() ||
+                    linha.startsWith("#")) {
+                continue;
+            }
+
+            /*
+             * FORMATO 1:
+             *
+             * Messi.bin = ID03097
+             *
+             * Primeiro campo = arquivo original
+             * Segundo campo = novo nome
+             */
+
+            int separador =
+                    linha.indexOf("=");
+
+            if (separador >= 0) {
+
+                String antigo =
+                        linha.substring(
+                                0,
+                                separador
+                        ).trim();
+
+                String novo =
+                        linha.substring(
+                                separador + 1
+                        ).trim();
+
+                if (!antigo.isEmpty() &&
+                        !novo.isEmpty()) {
+
+                    lista.add(
+                            new String[]{
+                                    antigo,
+                                    novo
+                            }
+                    );
+                }
+
+                continue;
+            }
+
+            /*
+             * FORMATO 2:
+             *
+             * ID03097
+             * ID03098
+             * ID03099
+             *
+             * O arquivo correspondente será
+             * escolhido pela posição na pasta.
+             */
+
+            lista.add(
+                    new String[]{
+                            "",
+                            linha
+                    }
+            );
+        }
+
+        reader.close();
+        in.close();
+
+        return lista;
+    }
+
+    private List<Uri> listarArquivos(Uri pasta)
+            throws Exception {
+
+        List<Uri> arquivos =
+                new ArrayList<>();
+
+        String documentId =
+                DocumentsContract.getTreeDocumentId(
+                        pasta
+                );
+
+        Uri childrenUri =
+                DocumentsContract
+                        .buildChildDocumentsUriUsingTree(
+                                pasta,
+                                documentId
+                        );
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        childrenUri,
+                        new String[]{
+                                DocumentsContract.Document
+                                        .COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document
+                                        .COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document
+                                        .COLUMN_MIME_TYPE
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor == null) {
+            return arquivos;
+        }
+
+        try {
+
+            while (cursor.moveToNext()) {
+
+                String id =
+                        cursor.getString(0);
+
+                String nome =
+                        cursor.getString(1);
+
+                int tipo =
+                        cursor.getColumnIndex(
+                                DocumentsContract.Document
+                                        .COLUMN_MIME_TYPE
+                        );
+
+                if (nome == null) {
+                    continue;
+                }
+
+                if (tipo >= 0 &&
+                        "vnd.android.document/directory"
+                                .equals(cursor.getString(tipo))) {
+                    continue;
+                }
+
+                Uri arquivo =
+                        DocumentsContract
+                                .buildDocumentUriUsingTree(
+                                        pasta,
+                                        id
+                                );
+
+                arquivos.add(arquivo);
+            }
+
+        } finally {
+            cursor.close();
+        }
+
+        return arquivos;
+    }
+
+    private Uri encontrarArquivo(
+            List<Uri> arquivos,
+            String nomeAntigo
+    ) throws Exception {
+
+        Uri exato = null;
+
+        for (Uri uri : arquivos) {
+
+            String nome =
+                    obterNome(uri);
+
+            if (nome == null) {
+                continue;
+            }
+
+            if (nome.equals(nomeAntigo)) {
+                return uri;
+            }
+        }
+
+        String stemProcurado =
+                obterStem(nomeAntigo);
+
+        for (Uri uri : arquivos) {
+
+            String nome =
+                    obterNome(uri);
+
+            if (nome == null) {
+                continue;
+            }
+
+            if (obterStem(nome)
+                    .equals(nomeAntigo)) {
+
+                if (exato != null) {
+                    return null;
+                }
+
+                exato = uri;
+            }
+        }
+
+        if (exato != null) {
+            return exato;
+        }
+
+        if (!stemProcurado.equals(nomeAntigo)) {
+            return null;
+        }
+
+        return null;
+    }
+
+    private String obterStem(String nome) {
+
+        int ponto =
+                nome.lastIndexOf(".");
+
+        if (ponto > 0) {
+            return nome.substring(
+                    0,
+                    ponto
+            );
+        }
+
+        return nome;
+    }
+
+    private String obterNome(Uri uri) {
+
+        android.database.Cursor cursor =
+                getContentResolver().query(
+                        uri,
+                        new String[]{
+                                DocumentsContract.Document
+                                        .COLUMN_DISPLAY_NAME
+                        },
+                        null,
+                        null,
+                        null
+                );
+
+        if (cursor == null) {
+            return null;
+        }
+
+        try {
+
+            if (cursor.moveToFirst()) {
+                return cursor.getString(0);
+            }
+
+        } finally {
+            cursor.close();
+        }
+
+        return null;
+    }
+
+    private Uri criarArquivo(
+            String nome
+    ) throws Exception {
+
+        String documentId =
+                DocumentsContract.getTreeDocumentId(
+                        pastaResultadoUri
+                );
+
+        Uri pastaDocumentUri =
+                DocumentsContract
+                        .buildDocumentUriUsingTree(
+                                pastaResultadoUri,
+                                documentId
+                        );
+
+        String mimeType =
+                nome.toLowerCase(
+                        Locale.ROOT
+                ).endsWith(".png")
+                        ? "image/png"
+                        : "application/octet-stream";
+
+        return DocumentsContract.createDocument(
+                getContentResolver(),
+                pastaDocumentUri,
+                mimeType,
+                nome
+        );
+    }
+
+    private void copiarArquivo(
+            Uri origem,
+            Uri destino
+    ) throws Exception {
+
+        InputStream entrada =
+                getContentResolver()
+                        .openInputStream(origem);
+
+        OutputStream saida =
+                getContentResolver()
+                        .openOutputStream(destino);
+
+        if (entrada == null ||
+                saida == null) {
+
+            if (entrada != null) {
+                entrada.close();
+            }
+
+            if (saida != null) {
+                saida.close();
+            }
+
+            throw new Exception(
+                    "Não foi possível copiar o arquivo."
+            );
+        }
+
+        byte[] buffer =
+                new byte[8192];
+
+        int lidos;
+
+        while ((lidos =
+                entrada.read(buffer)) != -1) {
+
+            saida.write(
+                    buffer,
+                    0,
+                    lidos
+            );
+        }
+
+        saida.flush();
+
+        entrada.close();
+        saida.close();
+    }
+
+    private void gerarListaArquivos() {
+
+        if (pastaArquivosUri == null) {
+
+            Toast.makeText(
+                    this,
+                    "Selecione a pasta dos arquivos primeiro.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        new Thread(() -> {
+
+            try {
+
+                List<Uri> arquivos =
+                        listarArquivos(pastaArquivosUri);
+
+                if (arquivos.isEmpty()) {
+
+                    atualizarStatus(
+                            "❌ Nenhum arquivo encontrado."
+                    );
+
+                    return;
+                }
+
+                StringBuilder texto =
+                        new StringBuilder();
+
+                for (Uri arquivo : arquivos) {
+
+                    String nome =
+                            obterNome(arquivo);
+
+                    if (nome != null &&
+                            !nome.trim().isEmpty()) {
+
+                        texto.append(nome.trim());
+                        texto.append("\n");
+                    }
+                }
+
+                /*
+                 * A lista será salva na própria pasta
+                 * dos arquivos selecionados.
+                 *
+                 * Nome:
+                 *
+                 * #Lista_Arquivos.txt
+                 */
+
+                String nomeLista =
+                        "#Lista_Arquivos.txt";
+
+                Uri destino = criarArquivoNaPastaArquivos(
+                        nomeLista
+                );
+
+                if (destino == null) {
+
+                    throw new Exception(
+                            "Não foi possível criar o TXT."
+                    );
+                }
+
+                OutputStream out =
+                        getContentResolver()
+                                .openOutputStream(destino);
+
+                if (out == null) {
+
+                    throw new Exception(
+                            "Não foi possível abrir o TXT."
+                    );
+                }
+
+                byte[] dados =
+                        texto.toString()
+                                .getBytes(
+                                        StandardCharsets.UTF_8
+                                );
+
+                out.write(dados);
+                out.flush();
+                out.close();
+
+                atualizarStatus(
+                        "✅ LISTA GERADA!\n\n" +
+                        "Arquivos encontrados: " +
+                        arquivos.size() +
+                        "\n\n" +
+                        nomeLista
+                );
+
+            } catch (Exception e) {
+
+                String erro =
+                        e.getMessage() == null
+                                ? e.toString()
+                                : e.getMessage();
+
+                atualizarStatus(
+                        "❌ ERRO AO GERAR LISTA:\n\n" +
+                        erro
+                );
+            }
+
+        }).start();
+    }
+
+    private Uri criarArquivoNaPastaArquivos(
+            String nome
+    ) throws Exception {
+
+        String documentId =
+                DocumentsContract.getTreeDocumentId(
+                        pastaArquivosUri
+                );
+
+        Uri pastaDocumentUri =
+                DocumentsContract
+                        .buildDocumentUriUsingTree(
+                                pastaArquivosUri,
+                                documentId
+                        );
+
+        return DocumentsContract.createDocument(
+                getContentResolver(),
+                pastaDocumentUri,
+                "text/plain",
+                nome
+        );
+    }
+
+    private void atualizarStatus(
+            String texto
+    ) {
+
+        runOnUiThread(() ->
+                txtStatus.setText(texto)
+        );
+    }
+}
